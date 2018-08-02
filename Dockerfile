@@ -9,6 +9,10 @@ RUN pip install --upgrade pip
 
 # TODO: reduce this to just the folders we need
 COPY . mqttwarn
+
+RUN pip install -r mqttwarn/requirements-release.txt
+RUN pip install -r mqttwarn/requirements-optional.txt
+
 RUN pip install -e mqttwarn
 
 # expect this folder to be volume-mounted and expect to find the config file there

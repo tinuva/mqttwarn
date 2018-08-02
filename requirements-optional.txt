@@ -1,0 +1,12 @@
+
+dnspython
+fbchat
+google-api-python-client
+gspread
+Jinja2
+puka
+python-twitter
+redis
+twilio
+websocket-client
+xively-python
