@@ -1,33 +1,20 @@
 FROM python:2.7
 
-RUN apt-get update
-RUN apt-get install -y vim
-RUN apt-get install -y sudo
+# TODO: remove this once we're happy it's working
+RUN apt-get update && apt-get install -y \
+    vim
 
+# the 2.7 image seems to be a bit behind
 RUN pip install --upgrade pip
 
-## build /opt/mqttwarn
-#RUN mkdir -p /opt/mqttwarn
-#WORKDIR /opt/mqttwarn
-#
-### add user mqttwarn to image
-##RUN groupadd -r mqttwarn && useradd -r -g mqttwarn mqttwarn -p '*'
-##RUN usermod -aG sudo mqttwarn
-##RUN chown -R mqttwarn /opt/mqttwarn
-##
-### process run as mqttwarn user
-##USER mqttwarn
-#
+# TODO: reduce this to just the folders we need
+COPY . mqttwarn
+RUN pip install -e mqttwarn
 
-# finally, copy the current code (ideally we'd copy only what we need, but it
-#  is not clear what that is, yet)
-COPY . /opt/mqttwarn
+# expect this folder to be volume-mounted and expect to find the config file there
+VOLUME /etc/mqttwarn
+ENV MQTTWARNINI /etc/mqttwarn/mqttwarn.ini
 
-RUN pip install -e /opt/mqttwarn
-
-VOLUME ["/etc/mqttwarn"]
-ENV MQTTWARNINI="/etc/mqttwarn/mqttwarn.ini"
-
-# run process
+# run the app
 CMD mqttwarn
 
