@@ -11,6 +11,9 @@ import Queue
 from datetime import datetime
 from pkg_resources import resource_filename
 
+from kaneda.backends import LoggerBackend, InfluxBackend
+from kaneda import Metrics
+
 import paho.mqtt.client as paho
 
 from mqttwarn.context import RuntimeContext, FunctionInvoker
@@ -68,6 +71,13 @@ ptlist = {}
 # Instances of loaded service plugins
 service_plugins = {}
 
+
+logBackend = LoggerBackend(None, './kaneda.log')
+influxBackend = InfluxBackend(
+    database = "mqtt",
+    connection_url = "influxdb://10.0.2.2:8086/mqtt"
+)
+metrics = Metrics(backend=influxBackend)
 
 # Class with helper functions which is passed to each plugin
 # and its global instantiation
@@ -144,6 +154,7 @@ def on_connect(mosq, userdata, flags, result_code):
     5: Refused - not authorised (MQTT v3.1 broker only)
     """
     if result_code == 0:
+        metrics.event('connected', 'bar', ['foo'])
         logger.debug("Connected to MQTT broker, subscribing to topics...")
         if not cf.cleansession:
             logger.debug("Cleansession==False; previous subscriptions for clientid %s remain active on broker" % cf.clientid)
@@ -203,6 +214,8 @@ def on_message(mosq, userdata, msg):
         if cf.skipretained:
             logger.debug("Skipping retained message on %s" % topic)
             return
+
+    metrics.event('on_message', "", {'topic': topic})
 
     # Try to find matching settings for this topic
     for section in context.get_sections():
@@ -416,91 +429,94 @@ def processor(worker_id=None):
 
     while not exit_flag:
         logger.debug('Job queue has %s items to process' % q_in.qsize())
+        metrics.gauge('queue.size', q_in.qsize())
         job = q_in.get()
 
-        service = job.service
-        section = job.section
-        target  = job.target
-        topic   = job.topic
+        with metrics.timed('queue.process'):
+            service = job.service
+            section = job.section
+            target  = job.target
+            topic   = job.topic
 
-        logger.debug("Processor #%s is handling: `%s' for %s" % (worker_id, service, target))
+            logger.debug("Processor #%s is handling: `%s' for %s" % (worker_id, service, target))
 
-        # Sanity checks.
-        # If service configuration or targets can not be obtained successfully,
-        # log a sensible error message, fail the job and carry on with the next job.
-        try:
-            service_config  = context.get_service_config(service)
-            service_targets = context.get_service_targets(service)
-
-            if target not in service_targets:
-                error_message = "Invalid configuration: topic {topic} points to " \
-                                "non-existing target {target} in service {service}".format(**locals())
-                raise KeyError(error_message)
-
-        except Exception as ex:
-            logger.error("Cannot handle service=%s, target=%s: %s\n%s" % (service, target, ex, exception_traceback()))
-            q_in.task_done()
-            continue
-
-        item = {
-            'service'       : service,
-            'section'       : section,
-            'target'        : target,
-            'config'        : service_config,
-            'addrs'         : service_targets[target],
-            'topic'         : topic,
-            'payload'       : job.payload,
-            'data'          : None,
-            'title'         : None,
-            'image'         : None,
-            'message'       : None,
-            'priority'      : None
-        }
-
-        transform_data = job.data
-        item['data'] = dict(transform_data.items())
-
-        item['title'] = xform(context.get_config(section, 'title'), SCRIPTNAME, transform_data)
-        item['image'] = xform(context.get_config(section, 'image'), '', transform_data)
-        item['message'] = xform(context.get_config(section, 'format'), job.payload, transform_data)
-
-        try:
-            item['priority'] = int(xform(context.get_config(section, 'priority'), 0, transform_data))
-        except Exception, e:
-            item['priority'] = 0
-            logger.warn("Failed to determine the priority, defaulting to zero: %s" % (str(e)))
-
-        if HAVE_JINJA is False and context.get_config(section, 'template'):
-            logger.warn("Templating not possible because Jinja2 is not installed")
-
-        if HAVE_JINJA is True:
-            template = context.get_config(section, 'template')
-            if template is not None:
-                try:
-                    text = render_template(template, transform_data)
-                    if text is not None:
-                        item['message'] = text
-                except Exception, e:
-                    logger.warn("Cannot render `%s' template: %s" % (template, str(e)))
-
-        if item.get('message') is not None and len(item.get('message')) > 0:
-            st = Struct(**item)
-            notified = False
+            # Sanity checks.
+            # If service configuration or targets can not be obtained successfully,
+            # log a sensible error message, fail the job and carry on with the next job.
             try:
-                # Fire the plugin in a separate thread and kill it if it doesn't return in 10s
-                module = service_plugins[service]['module']
-                service_logger_name = 'mqttwarn.services.{}'.format(service)
-                srv = make_service(mqttc=mqttc, name=service_logger_name)
-                notified = timeout(module.plugin, (srv, st))
+                service_config  = context.get_service_config(service)
+                service_targets = context.get_service_targets(service)
+
+                if target not in service_targets:
+                    error_message = "Invalid configuration: topic {topic} points to " \
+                                    "non-existing target {target} in service {service}".format(**locals())
+                    raise KeyError(error_message)
+
+            except Exception as ex:
+                logger.error("Cannot handle service=%s, target=%s: %s\n%s" % (service, target, ex, exception_traceback()))
+                q_in.task_done()
+                continue
+
+            item = {
+                'service'       : service,
+                'section'       : section,
+                'target'        : target,
+                'config'        : service_config,
+                'addrs'         : service_targets[target],
+                'topic'         : topic,
+                'payload'       : job.payload,
+                'data'          : None,
+                'title'         : None,
+                'image'         : None,
+                'message'       : None,
+                'priority'      : None
+            }
+
+            transform_data = job.data
+            item['data'] = dict(transform_data.items())
+
+            item['title'] = xform(context.get_config(section, 'title'), SCRIPTNAME, transform_data)
+            item['image'] = xform(context.get_config(section, 'image'), '', transform_data)
+            item['message'] = xform(context.get_config(section, 'format'), job.payload, transform_data)
+
+            try:
+                item['priority'] = int(xform(context.get_config(section, 'priority'), 0, transform_data))
             except Exception, e:
-                logger.error("Cannot invoke service for `%s': %s" % (service, str(e)))
+                item['priority'] = 0
+                logger.warn("Failed to determine the priority, defaulting to zero: %s" % (str(e)))
 
-            if not notified:
-                logger.warn("Notification of %s for `%s' FAILED or TIMED OUT" % (service, item.get('topic')))
-        else:
-            logger.warn("Notification of %s for `%s' suppressed: text is empty" % (service, item.get('topic')))
+            if HAVE_JINJA is False and context.get_config(section, 'template'):
+                logger.warn("Templating not possible because Jinja2 is not installed")
 
-        q_in.task_done()
+            if HAVE_JINJA is True:
+                template = context.get_config(section, 'template')
+                if template is not None:
+                    try:
+                        text = render_template(template, transform_data)
+                        if text is not None:
+                            item['message'] = text
+                    except Exception, e:
+                        logger.warn("Cannot render `%s' template: %s" % (template, str(e)))
+
+            if item.get('message') is not None and len(item.get('message')) > 0:
+                st = Struct(**item)
+                notified = False
+                try:
+                    # Fire the plugin in a separate thread and kill it if it doesn't return in 10s
+                    module = service_plugins[service]['module']
+                    service_logger_name = 'mqttwarn.services.{}'.format(service)
+                    srv = make_service(mqttc=mqttc, name=service_logger_name)
+                    notified = timeout(module.plugin, (srv, st))
+                    metrics.event('processed', None, {"topic": topic, "service": str(service)})
+                except Exception, e:
+                    logger.error("Cannot invoke service for `%s': %s" % (service, str(e)))
+
+                if not notified:
+                    logger.warn("Notification of %s for `%s' FAILED or TIMED OUT" % (service, item.get('topic')))
+            else:
+                logger.warn("Notification of %s for `%s' suppressed: text is empty" % (service, item.get('topic')))
+
+            q_in.task_done()
 
     logger.debug("Thread exiting...")
 

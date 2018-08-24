@@ -7,3 +7,5 @@
 *.sln
 *.suo
 *.pyproj
+.vagrant
+*.log

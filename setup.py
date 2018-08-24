@@ -10,6 +10,8 @@ requires = [
     'attrs==17.4.0',
     'docopt==0.6.2',
     'requests==2.18.4',
+    'kaneda',
+    'influxdb'
 ]
 
 extras = {
