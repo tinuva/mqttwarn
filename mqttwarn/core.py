@@ -11,7 +11,7 @@ import Queue
 from datetime import datetime
 from pkg_resources import resource_filename
 
-from kaneda.backends import LoggerBackend, InfluxBackend
+from kaneda.backends import LoggerBackend, InfluxBackend, BaseBackend
 from kaneda import Metrics
 
 import paho.mqtt.client as paho
@@ -72,12 +72,18 @@ ptlist = {}
 service_plugins = {}
 
 
-logBackend = LoggerBackend(None, './kaneda.log')
-influxBackend = InfluxBackend(
-    database = "mqtt",
-    connection_url = "influxdb://10.0.2.2:8086/mqtt"
-)
-metrics = Metrics(backend=influxBackend)
+class NullBackend(BaseBackend):
+    def __init__(self):
+        return
+
+    def report(self, name, metric, value, tags, id_):
+        return None
+
+
+
+metrics = Metrics(backend=NullBackend())
+
+
 
 # Class with helper functions which is passed to each plugin
 # and its global instantiation
@@ -154,7 +160,6 @@ def on_connect(mosq, userdata, flags, result_code):
     5: Refused - not authorised (MQTT v3.1 broker only)
     """
     if result_code == 0:
-        metrics.event('connected', 'bar', ['foo'])
         logger.debug("Connected to MQTT broker, subscribing to topics...")
         if not cf.cleansession:
             logger.debug("Cleansession==False; previous subscriptions for clientid %s remain active on broker" % cf.clientid)
@@ -546,6 +551,20 @@ def connect():
     """
     Load service plugins, connect to the broker, launch daemon threads and listen forever
     """
+
+    # is this the top level function?
+    global metrics
+    logger.info("metrics")
+    logger.info(cf.metrics_influxdb_host)
+    if cf.metrics_influxdb_host is not None:
+        url = connection_url = 'influxdb://' + cf.metrics_influxdb_host + ':8086/' + cf.metrics_influxdb_database
+        logger.info(url)
+        metrics = Metrics(
+            backend=InfluxBackend(
+                database = cf.metrics_influxdb_database,
+                connection_url = url
+            )
+        )
 
     # FIXME: Remove global variables
     global mqttc
