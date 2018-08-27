@@ -58,9 +58,6 @@ class Config(RawConfigParser):
         self.tls_insecure = False
         self.tls          = False
 
-        self.metrics_influxdb_database  = None
-        self.metrics_influxdb_host      = None
-
         self.__dict__.update(defaults)
         self.__dict__.update(self.config('defaults'))
 

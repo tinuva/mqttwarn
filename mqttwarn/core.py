@@ -208,32 +208,38 @@ def on_message(mosq, userdata, msg):
     """
     Message received from the broker
     """
+
     topic = msg.topic
-    try:
-        payload = msg.payload.decode('utf-8')
-    except UnicodeEncodeError:
-        payload = msg.payload
-    logger.debug("Message received on %s: %s" % (topic, payload))
+    split = topic.split('/')
+    length = len(split)
+    device = split[1] if (length > 1 ) else "unknown_device"
+    teleType = split[2] if (length > 2 ) else "unknown_type"
+    with metrics.timed('on_message', {'topic': topic, 'device': device, 'type': teleType}, use_ms = True):
+        try:
+            payload = msg.payload.decode('utf-8')
+        except UnicodeEncodeError:
+            payload = msg.payload
 
-    if msg.retain == 1:
-        if cf.skipretained:
-            logger.debug("Skipping retained message on %s" % topic)
-            return
+        logger.debug("Message received on %s: %s" % (topic, payload))
+        metrics.event('message_received', len(payload), {'topic': topic})
 
-    metrics.event('on_message', "", {'topic': topic})
+        if msg.retain == 1:
+            if cf.skipretained:
+                logger.debug("Skipping retained message on %s" % topic)
+                return
 
-    # Try to find matching settings for this topic
-    for section in context.get_sections():
-        # Get the topic for this section (usually the section name but optionally overridden)
-        match_topic = context.get_topic(section)
-        if paho.topic_matches_sub(match_topic, topic):
-            logger.debug("Section [%s] matches message on %s. Processing..." % (section, topic))
-            # Check for any message filters
-            if context.is_filtered(section, topic, payload):
-                logger.debug("Filter in section [%s] has skipped message on %s" % (section, topic))
-                continue
-            # Send the message to any targets specified
-            send_to_targets(section, topic, payload)
+        # Try to find matching settings for this topic
+        for section in context.get_sections():
+            # Get the topic for this section (usually the section name but optionally overridden)
+            match_topic = context.get_topic(section)
+            if paho.topic_matches_sub(match_topic, topic):
+                logger.debug("Section [%s] matches message on %s. Processing..." % (section, topic))
+                # Check for any message filters
+                if context.is_filtered(section, topic, payload):
+                    logger.debug("Filter in section [%s] has skipped message on %s" % (section, topic))
+                    continue
+                # Send the message to any targets specified
+                send_to_targets(section, topic, payload)
 # End of MQTT broker callbacks
 
 
@@ -434,15 +440,16 @@ def processor(worker_id=None):
 
     while not exit_flag:
         logger.debug('Job queue has %s items to process' % q_in.qsize())
-        metrics.gauge('queue.size', q_in.qsize())
+        metrics.gauge('input_queue_size', q_in.qsize())
         job = q_in.get()
 
-        with metrics.timed('queue.process'):
-            service = job.service
-            section = job.section
-            target  = job.target
-            topic   = job.topic
 
+        service = job.service
+        section = job.section
+        target  = job.target
+        topic   = job.topic
+
+        with metrics.timed('processor', {'topic': topic, 'service': service}, use_ms = True):
             logger.debug("Processor #%s is handling: `%s' for %s" % (worker_id, service, target))
 
             # Sanity checks.
@@ -512,7 +519,7 @@ def processor(worker_id=None):
                     service_logger_name = 'mqttwarn.services.{}'.format(service)
                     srv = make_service(mqttc=mqttc, name=service_logger_name)
                     notified = timeout(module.plugin, (srv, st))
-                    metrics.event('processed', None, {"topic": topic, "service": str(service)})
+                    metrics.event('message_processed', None, {"topic": topic, "service": str(service)})
                 except Exception, e:
                     logger.error("Cannot invoke service for `%s': %s" % (service, str(e)))
 
@@ -555,13 +562,16 @@ def connect():
     # is this the top level function?
     global metrics
     logger.info("metrics")
-    logger.info(cf.metrics_influxdb_host)
-    if cf.metrics_influxdb_host is not None:
-        url = connection_url = 'influxdb://' + cf.metrics_influxdb_host + ':8086/' + cf.metrics_influxdb_database
+    mcfg = cf.config('config:metrics:influxdb')
+    mihost = mcfg['host']
+    midb = mcfg['database']
+    logger.info(mihost)
+    if mihost is not None:
+        url = 'influxdb://' + mihost + ':8086/' + midb
         logger.info(url)
         metrics = Metrics(
             backend=InfluxBackend(
-                database = cf.metrics_influxdb_database,
+                database = midb,
                 connection_url = url
             )
         )

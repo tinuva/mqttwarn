@@ -7,11 +7,14 @@ RUN apt-get update && apt-get install -y \
 # the 2.7 image seems to be a bit behind
 RUN pip install --upgrade pip
 
-# TODO: reduce this to just the folders we need
-COPY . mqttwarn
+RUN mkdir mqttwarn
+COPY requirements-*.txt mqttwarn/
 
 RUN pip install -r mqttwarn/requirements-release.txt
 RUN pip install -r mqttwarn/requirements-optional.txt
+
+# TODO: reduce this to just the folders we need
+COPY . mqttwarn
 
 RUN pip install -e mqttwarn
 
