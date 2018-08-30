@@ -1,20 +1,18 @@
 # -*- coding: utf-8 -*-
 # (c) 2014-2018 The mqttwarn developers
+import Queue
+import logging
 import os
+import paho.mqtt.client as paho
+import socket
 import sys
+import threading
 import time
 import types
-import socket
-import logging
-import threading
-import Queue
 from datetime import datetime
-from pkg_resources import resource_filename
-
-from kaneda.backends import LoggerBackend, InfluxBackend, BaseBackend
 from kaneda import Metrics
-
-import paho.mqtt.client as paho
+from kaneda.backends import InfluxBackend, BaseBackend
+from pkg_resources import resource_filename
 
 from mqttwarn.context import RuntimeContext, FunctionInvoker
 from mqttwarn.cron import PeriodicThread
@@ -203,6 +201,18 @@ def on_disconnect(mosq, userdata, result_code):
         send_failover("brokerdisconnected", "Broker connection lost. Will attempt to reconnect in 5s...")
         time.sleep(5)
 
+# TODO: cache the dictionaries for given topics
+def tagsForTopic(topic):
+    tags = {'topic': topic}
+    for i, level in enumerate(topic.split('/')):
+        tags.update({'level' + str(i): level})
+    logger.info("tags = " + str(tags))
+    return tags
+
+def tagsForTopicAndService(topic, service):
+    return tagsForTopic(topic).update({"service": service})
+
+
 
 def on_message(mosq, userdata, msg):
     """
@@ -210,18 +220,15 @@ def on_message(mosq, userdata, msg):
     """
 
     topic = msg.topic
-    split = topic.split('/')
-    length = len(split)
-    device = split[1] if (length > 1 ) else "unknown_device"
-    teleType = split[2] if (length > 2 ) else "unknown_type"
-    with metrics.timed('on_message', {'topic': topic, 'device': device, 'type': teleType}, use_ms = True):
+
+    with metrics.timed('on_message', tagsForTopic(topic), use_ms = True):
         try:
             payload = msg.payload.decode('utf-8')
         except UnicodeEncodeError:
             payload = msg.payload
 
         logger.debug("Message received on %s: %s" % (topic, payload))
-        metrics.event('message_received', len(payload), {'topic': topic})
+        metrics.event('message_received', payload, tagsForTopic(topic))
 
         if msg.retain == 1:
             if cf.skipretained:
@@ -432,6 +439,10 @@ def decode_payload(section, topic, payload):
     return transform_data
 
 
+
+def record_event(name, topic, service):
+    metrics.event(name, None, tagsForTopicAndService(topic, service))
+
 def processor(worker_id=None):
     """
     Queue runner. Pull a job from the queue, find the module in charge
@@ -449,7 +460,7 @@ def processor(worker_id=None):
         target  = job.target
         topic   = job.topic
 
-        with metrics.timed('processor', {'topic': topic, 'service': service}, use_ms = True):
+        with metrics.timed('processor', tagsForTopicAndService(topic, service), use_ms = True):
             logger.debug("Processor #%s is handling: `%s' for %s" % (worker_id, service, target))
 
             # Sanity checks.
@@ -519,14 +530,17 @@ def processor(worker_id=None):
                     service_logger_name = 'mqttwarn.services.{}'.format(service)
                     srv = make_service(mqttc=mqttc, name=service_logger_name)
                     notified = timeout(module.plugin, (srv, st))
-                    metrics.event('message_processed', None, {"topic": topic, "service": str(service)})
+                    record_event('message_processed', topic, service)
                 except Exception, e:
                     logger.error("Cannot invoke service for `%s': %s" % (service, str(e)))
+                    record_event('message_processed exception', topic, service)
 
                 if not notified:
                     logger.warn("Notification of %s for `%s' FAILED or TIMED OUT" % (service, item.get('topic')))
+                    record_event('message_processed not notified', topic, service)
             else:
                 logger.warn("Notification of %s for `%s' suppressed: text is empty" % (service, item.get('topic')))
+                record_event('message_processed empty message', topic, service)
 
             q_in.task_done()
 
@@ -559,14 +573,13 @@ def connect():
     Load service plugins, connect to the broker, launch daemon threads and listen forever
     """
 
-    # is this the top level function?
+    # QUESTION:  is 'connect' the top level function for the app?
     global metrics
     logger.info("metrics")
     mcfg = cf.config('config:metrics:influxdb')
-    mihost = mcfg['host']
-    midb = mcfg['database']
-    logger.info(mihost)
-    if mihost is not None:
+    if mcfg is not None:
+        mihost = mcfg['host']
+        midb = mcfg['database']
         url = 'influxdb://' + mihost + ':8086/' + midb
         logger.info(url)
         metrics = Metrics(
