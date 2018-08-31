@@ -10,9 +10,8 @@ import threading
 import time
 import types
 from datetime import datetime
-from kaneda import Metrics
-from kaneda.backends import InfluxBackend, BaseBackend
 from pkg_resources import resource_filename
+from metrics import InfluxDbMetrics
 
 from mqttwarn.context import RuntimeContext, FunctionInvoker
 from mqttwarn.cron import PeriodicThread
@@ -70,16 +69,7 @@ ptlist = {}
 service_plugins = {}
 
 
-class NullBackend(BaseBackend):
-    def __init__(self):
-        return
-
-    def report(self, name, metric, value, tags, id_):
-        return None
-
-
-
-metrics = Metrics(backend=NullBackend())
+metrics = None
 
 
 
@@ -201,17 +191,6 @@ def on_disconnect(mosq, userdata, result_code):
         send_failover("brokerdisconnected", "Broker connection lost. Will attempt to reconnect in 5s...")
         time.sleep(5)
 
-# TODO: cache the dictionaries for given topics
-def tagsForTopic(topic):
-    tags = {'topic': topic}
-    for i, level in enumerate(topic.split('/')):
-        tags.update({'level' + str(i): level})
-    logger.info("tags = " + str(tags))
-    return tags
-
-def tagsForTopicAndService(topic, service):
-    return tagsForTopic(topic).update({"service": service})
-
 
 
 def on_message(mosq, userdata, msg):
@@ -221,14 +200,14 @@ def on_message(mosq, userdata, msg):
 
     topic = msg.topic
 
-    with metrics.timed('on_message', tagsForTopic(topic), use_ms = True):
+    with metrics.timed('on_message', topic, None):
         try:
             payload = msg.payload.decode('utf-8')
         except UnicodeEncodeError:
             payload = msg.payload
 
         logger.debug("Message received on %s: %s" % (topic, payload))
-        metrics.event('message_received', payload, tagsForTopic(topic))
+        metrics.event('message_received', topic, payload)
 
         if msg.retain == 1:
             if cf.skipretained:
@@ -440,9 +419,6 @@ def decode_payload(section, topic, payload):
 
 
 
-def record_event(name, topic, service):
-    metrics.event(name, None, tagsForTopicAndService(topic, service))
-
 def processor(worker_id=None):
     """
     Queue runner. Pull a job from the queue, find the module in charge
@@ -460,7 +436,7 @@ def processor(worker_id=None):
         target  = job.target
         topic   = job.topic
 
-        with metrics.timed('processor', tagsForTopicAndService(topic, service), use_ms = True):
+        with metrics.timed('processor', topic, service):
             logger.debug("Processor #%s is handling: `%s' for %s" % (worker_id, service, target))
 
             # Sanity checks.
@@ -522,6 +498,7 @@ def processor(worker_id=None):
                         logger.warn("Cannot render `%s' template: %s" % (template, str(e)))
 
             if item.get('message') is not None and len(item.get('message')) > 0:
+                message = item.get('message')
                 st = Struct(**item)
                 notified = False
                 try:
@@ -530,17 +507,18 @@ def processor(worker_id=None):
                     service_logger_name = 'mqttwarn.services.{}'.format(service)
                     srv = make_service(mqttc=mqttc, name=service_logger_name)
                     notified = timeout(module.plugin, (srv, st))
-                    record_event('message_processed', topic, service)
                 except Exception, e:
                     logger.error("Cannot invoke service for `%s': %s" % (service, str(e)))
-                    record_event('message_processed exception', topic, service)
+                    metrics.event('message_processed: exception', topic, message, service)
 
-                if not notified:
+                if notified:
+                    metrics.event('message_processed', topic, message, service)
+                else:
                     logger.warn("Notification of %s for `%s' FAILED or TIMED OUT" % (service, item.get('topic')))
-                    record_event('message_processed not notified', topic, service)
+                    metrics.event('message_processed: not notified', topic, message, service)
             else:
                 logger.warn("Notification of %s for `%s' suppressed: text is empty" % (service, item.get('topic')))
-                record_event('message_processed empty message', topic, service)
+                metrics.event('message_processed: empty message', topic, None, service)
 
             q_in.task_done()
 
@@ -577,17 +555,7 @@ def connect():
     global metrics
     logger.info("metrics")
     mcfg = cf.config('config:metrics:influxdb')
-    if mcfg is not None:
-        mihost = mcfg['host']
-        midb = mcfg['database']
-        url = 'influxdb://' + mihost + ':8086/' + midb
-        logger.info(url)
-        metrics = Metrics(
-            backend=InfluxBackend(
-                database = midb,
-                connection_url = url
-            )
-        )
+    metrics = InfluxDbMetrics(mcfg['host'], 8086, mcfg['database'])
 
     # FIXME: Remove global variables
     global mqttc

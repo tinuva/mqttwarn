@@ -13,8 +13,19 @@ COPY requirements-*.txt mqttwarn/
 RUN pip install -r mqttwarn/requirements-release.txt
 RUN pip install -r mqttwarn/requirements-optional.txt
 
-# TODO: reduce this to just the folders we need
-COPY . mqttwarn
+#COPY assets mqttwarn/
+#COPY etc mqttwarn/
+#COPY examples mqttwarn/
+#COPY mqttwarn mqttwarn/
+#COPY mqttwarn.egg-info mqttwarn/
+#COPY templates mqttwarn/
+#COPY vendor mqttwarn/
+#
+#COPY Makefile mqttwarn/
+#COPY MANIFEST.in mqttwarn/
+#COPY setup.py mqttwarn/
+
+COPY . mqttwarn/
 
 RUN pip install -e mqttwarn
 
