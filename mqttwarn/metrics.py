@@ -2,24 +2,27 @@
 import logging
 
 from kaneda import Metrics
-from kaneda.backends import InfluxBackend, BaseBackend
+from kaneda.backends import LoggerBackend, InfluxBackend, BaseBackend
 
 
 logger = logging.getLogger(__name__)
 
 
-class InfluxDbMetrics:
 
-    def __init__(self, hostname, port, database):
-        url = 'influxdb://' + hostname + ':' + str(port) + '/' + database
-        logger.info(url)
-        self._reporter = Metrics(
-            backend=InfluxBackend(
-                database = database,
-                connection_url = url
-            )
-        )
+class MqttwarnMetrics(object):
+
+    def __init__(self):
+        self._m = None
         self._cachedTags = {}
+
+    def _backend(self):
+        pass
+
+    def _metrics(self):
+        if (not self._m):
+            self._m = Metrics(self._backend())
+        return self._m
+
 
 
     # -----------------------------------------------------------
@@ -28,16 +31,13 @@ class InfluxDbMetrics:
     #  specify the tags
 
     def timed(self, name, topic, service=None):
-        tags = self._tags(topic, service)
-        logger.info(name)
-        logger.info(str(tags))
-        return self._reporter.timed(name, tags, True)
+        return self._metrics().timed(name, self._tags(topic, service), True)
 
     def gauge(self, name, value):
-        return self._reporter.gauge(name, value)
+        return self._metrics().gauge(name, value)
 
     def event(self, name, topic, payload, service=None):
-        return self._reporter.event(name, payload, self._tags(topic, service))
+        return self._metrics().event(name, payload, self._tags(topic, service))
 
 
 
@@ -92,4 +92,33 @@ class InfluxDbMetrics:
             tags.update({'level' + str(i): level})
         return tags
 
+
+# -------------------------------------------------------------
+
+
+class InfluxDbMqttwarnMetrics(MqttwarnMetrics):
+
+    def __init__(self, hostname, port, database):
+        super(InfluxDbMqttwarnMetrics, self).__init__() # $%&%^ took ages to get this invocation right... Python is fucked.
+        self._database = database
+        self._url = 'influxdb://' + hostname + ':' + str(port) + '/' + database
+        logger.info("Using InfluxDb url '" + self._url + "'")
+
+    def _backend(self):
+        return InfluxBackend(
+            database = self._database,
+            connection_url = self._url
+        )
+
+
+# -------------------------------------------------------------
+
+
+class LoggerMqttwarnMetrics(MqttwarnMetrics):
+
+    def __init__(self):
+        super(LoggerMqttwarnMetrics, self).__init__()
+
+    def _backend(self):
+        return LoggerBackend(logger)
 

@@ -11,7 +11,7 @@ import time
 import types
 from datetime import datetime
 from pkg_resources import resource_filename
-from metrics import InfluxDbMetrics
+from metrics import InfluxDbMqttwarnMetrics, LoggerMqttwarnMetrics
 
 from mqttwarn.context import RuntimeContext, FunctionInvoker
 from mqttwarn.cron import PeriodicThread
@@ -555,8 +555,9 @@ def connect():
     global metrics
     logger.info("metrics")
     mcfg = cf.config('config:metrics:influxdb')
-    metrics = InfluxDbMetrics(mcfg['host'], 8086, mcfg['database'])
-
+    # metrics = InfluxDbMqttwarnMetrics(mcfg['host'], 8086, mcfg['database'])
+    metrics = LoggerMqttwarnMetrics()
+    
     # FIXME: Remove global variables
     global mqttc
 
