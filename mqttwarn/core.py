@@ -555,9 +555,9 @@ def connect():
     global metrics
     logger.info("metrics")
     mcfg = cf.config('config:metrics:influxdb')
-    # metrics = InfluxDbMqttwarnMetrics(mcfg['host'], 8086, mcfg['database'])
-    metrics = LoggerMqttwarnMetrics()
-    
+    metrics = InfluxDbMqttwarnMetrics(mcfg['host'], 8086, mcfg['database'])
+    # metrics = LoggerMqttwarnMetrics()
+
     # FIXME: Remove global variables
     global mqttc
 
