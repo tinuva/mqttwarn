@@ -99,7 +99,7 @@ class MqttwarnMetrics(object):
 class InfluxDbMqttwarnMetrics(MqttwarnMetrics):
 
     def __init__(self, hostname, port, database):
-        super(InfluxDbMqttwarnMetrics, self).__init__() # $%&%^ took ages to get this invocation right... Python is fucked.
+        super(InfluxDbMqttwarnMetrics, self).__init__()
         self._database = database
         self._url = 'influxdb://' + hostname + ':' + str(port) + '/' + database
         logger.info("Using InfluxDb url '" + self._url + "'")

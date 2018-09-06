@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 # (c) 2014-2018 The mqttwarn developers
-import Queue
-import logging
 import os
-import paho.mqtt.client as paho
-import socket
 import sys
-import threading
 import time
 import types
+import socket
+import logging
+import threading
+import Queue
 from datetime import datetime
 from pkg_resources import resource_filename
+
+import paho.mqtt.client as paho
 from metrics import InfluxDbMqttwarnMetrics, LoggerMqttwarnMetrics
 
 from mqttwarn.context import RuntimeContext, FunctionInvoker
