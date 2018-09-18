@@ -18,7 +18,11 @@ def add_row(cursor, tablename, rowdict):
     # filter out keys that are not column names
     cursor.execute("describe %s" % tablename)
     allowed_keys = set(row[0] for row in cursor.fetchall())
-    keys = allowed_keys.intersection(rowdict)
+    keys = list(allowed_keys.intersection(rowdict))
+
+    if (keys):
+        # this helps testability
+        keys.sort()
 
     if len(rowdict) > len(keys):
         unknown_keys = set(rowdict) - allowed_keys
@@ -26,8 +30,7 @@ def add_row(cursor, tablename, rowdict):
     columns = ", ".join(keys)
     values_template = ", ".join(["%s"] * len(keys))
 
-    sql = "insert into %s (%s) values (%s)" % (
-        tablename, columns, values_template)
+    sql = "insert into %s (%s) values (%s)" % (tablename, columns, values_template)
     values = tuple(rowdict[key] for key in keys)
     cursor.execute(sql, values)
 
