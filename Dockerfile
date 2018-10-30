@@ -1,17 +1,24 @@
-FROM python:2.7
+FROM python:2.7-alpine
 
 # based on https://github.com/pfichtner/docker-mqttwarn
 
 # install python libraries by various methods
-RUN apt-get update
-RUN apt-get install -y \
-        librrd-dev \
+RUN apk update
+RUN apk add \
+        gcc \
+        git \
+        gobject-introspection \
+        libc-dev \
+        libffi-dev \
+        librrd \
+        openssl-dev \
         python-dev \
-        python-gi \
-        python-mysqldb
+        py-mysqldb \
+        rrdtool \
+        rrdtool-dev
 
 RUN pip install \
-        azure-iothub-device-client \
+        #azure-iothub-device-client \
         dnspython \
         fbchat==v1.4.0 \
         git+https://github.com/Azelphur/pyPushBullet.git \
@@ -20,6 +27,7 @@ RUN pip install \
         jinja2 \
         Mastodon.py \
         paho-mqtt \
+        pgi \
         puka \
         pyserial \
         pyst2 \
@@ -43,7 +51,7 @@ RUN mkdir -p $MQTT_HOME
 WORKDIR $MQTT_HOME
 
 # add user 'mqttwarn' and give them control of the folder
-RUN groupadd -r mqttwarn && useradd -r -g mqttwarn mqttwarn
+RUN addgroup -S mqttwarn && adduser -D -S mqttwarn -G mqttwarn
 RUN chown -R mqttwarn $MQTT_HOME
 
 # switch the user
