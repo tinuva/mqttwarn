@@ -1,4 +1,4 @@
-FROM python:2.7
+FROM python:3
 
 # based on https://github.com/pfichtner/docker-mqttwarn
 
@@ -27,5 +27,5 @@ ENV MQTTWARNINI="/opt/mqttwarn/conf/mqttwarn.ini"
 COPY . /opt/mqttwarn
 
 # run process
-CMD python mqttwarn.py
+CMD mqttwarn
 
