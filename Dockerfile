@@ -2,30 +2,62 @@ FROM python:2.7
 
 # based on https://github.com/pfichtner/docker-mqttwarn
 
-# install python libraries (TODO: any others?)
-RUN pip install paho-mqtt requests jinja2
+# install python libraries by various methods
+RUN apt-get update
+RUN apt-get install -y \
+        librrd-dev \
+        python-dev \
+        python-gi \
+        python-mysqldb
 
-# build /opt/mqttwarn
-RUN mkdir -p /opt/mqttwarn
-WORKDIR /opt/mqttwarn
+RUN pip install \
+        azure-iothub-device-client \
+        dnspython \
+        fbchat==v1.4.0 \
+        git+https://github.com/Azelphur/pyPushBullet.git \
+        google-api-python-client \
+        gspread \
+        jinja2 \
+        Mastodon.py \
+        paho-mqtt \
+        puka \
+        pyserial \
+        pyst2 \
+        python-twitter \
+        rrdtool \
+        redis \
+        requests \
+        slacker \
+        twilio \
+        websocket-client
 
-# add user mqttwarn to image
+RUN easy_install \
+        apns \
+        Pastebin
+
+
+ENV MQTT_HOME=/opt/mqttwarn
+
+# we'll put the source here
+RUN mkdir -p $MQTT_HOME
+WORKDIR $MQTT_HOME
+
+# add user 'mqttwarn' and give them control of the folder
 RUN groupadd -r mqttwarn && useradd -r -g mqttwarn mqttwarn
-RUN chown -R mqttwarn /opt/mqttwarn
+RUN chown -R mqttwarn $MQTT_HOME
 
-# process run as mqttwarn user
+# switch the user
 USER mqttwarn
 
-# conf file from host
-VOLUME ["/opt/mqttwarn/conf"]
+# expect this folder to be volume mounted
+VOLUME ["$MQTT_HOME/conf"]
 
 # set conf path
-ENV MQTTWARNINI="/opt/mqttwarn/conf/mqttwarn.ini"
+ENV MQTTWARNINI="$MQTT_HOME/conf/mqttwarn.ini"
 
 # finally, copy the current code (ideally we'd copy only what we need, but it
 #  is not clear what that is, yet)
-COPY . /opt/mqttwarn
+COPY . $MQTT_HOME
 
 # run process
 CMD python mqttwarn.py
-
